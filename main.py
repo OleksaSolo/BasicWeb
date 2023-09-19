@@ -9,12 +9,10 @@ from datetime import datetime
 from threading import Thread 
 
 
-from jinja2 import Environment, FileSystemLoader
-
 BASE_DIR = pathlib.Path()
 SERVER_IP = '127.0.0.1'
 SERVER_PORT = 5000 
-env = Environment(loader=FileSystemLoader('templates'))
+
 
 
 def send_data_to_socket(data):
@@ -27,7 +25,7 @@ class HttpGetHandler(BaseHTTPRequestHandler):
         data = self.rfile.read(int(self.headers['Content-Length']))
         send_data_to_socket(data)
         self.send_response(302)
-        self.send_header('Location', '/message')
+        self.send_header('Location', '/message_ok.html')
         self.end_headers()
 
     def do_GET(self):
@@ -63,15 +61,15 @@ class HttpGetHandler(BaseHTTPRequestHandler):
         with open(filename, 'rb') as fd:
             self.wfile.write(fd.read())
 
-    def render_template(self, filename, status=200):
-        self.send_response(status)
-        self.send_header('Content-type', 'text/html')
-        self.end_headers()
-        with open(BASE_DIR.joinpath('data/blog.json'), 'r', encoding='utf-8') as fd:
-            r = json.load(fd)
-        template = env.get_template(filename)
-        html = template.render(blogs=r)
-        self.wfile.write(html.encode())
+    # def render_template(self, filename, status=200):
+    #     self.send_response(status)
+    #     self.send_header('Content-type', 'text/html')
+    #     self.end_headers()
+    #     with open(BASE_DIR.joinpath('data/blog.json'), 'r', encoding='utf-8') as fd:
+    #         r = json.load(fd)
+    #     template = env.get_template(filename)
+    #     html = template.render(blogs=r)
+    #     self.wfile.write(html.encode())
  
 
 def run(server_class=HTTPServer, handler_class=HttpGetHandler):
@@ -89,11 +87,19 @@ def save_data(data):
             key: value for key, value in [el.split('=') for el in data_parse.split('&')]
         }
         timestamp = str(datetime.now())
-        data_record = {
-            timestamp: pay_load
-        }       
+        data_record = { 
+            timestamp: pay_load 
+        }
+        try:
+            with open(BASE_DIR.joinpath('storage/data.json'), "r", encoding="utf-8") as fp:
+                loaded_data: dict = json.load(fp)
+            fp.close()
+        except OSError as e:
+            logging.error(f"Error open file {e}")
+        loaded_data.update(data_record)
         with open(BASE_DIR.joinpath('storage/data.json'), 'w', encoding='utf-8') as fd:
-            json.dump(data_record, fd, ensure_ascii=False)
+            json.dump(loaded_data, fd, ensure_ascii=False, indent=2)
+            fd.write('\n')
     except ValueError as err:
         logging.error(f"Field parse data {data_parse} with error: {err}")
     except OSError as err:
@@ -104,9 +110,12 @@ def run_socket_server(ip, port):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)    
     server = ip, port
     server_socket.bind(server)
+    # data, address = server_socket.recv(1024)
+    # print(f"socket server data: {data}")
     try:
         while True:
-            data, address = server_socket.recv(1024)
+            data, address = server_socket.recvfrom(1024)
+            print(f"socket server data: {data}")
             save_data(data)
     except KeyboardInterrupt:
         logging.info('Socket server stopped')
@@ -116,9 +125,9 @@ def run_socket_server(ip, port):
 
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format="%(threadName)s %(message)s")
-    thread_server = Thread(target=run())
-    thread_server.start
+    thread_server = Thread(target=run)
+    thread_server.start()
 
-    thread_socket = Thread(target=run_socket_server(SERVER_IP, SERVER_PORT))
-    thread_socket.start
+    thread_socket = Thread(target=run_socket_server, args=(SERVER_IP, SERVER_PORT))
+    thread_socket.start()
 
